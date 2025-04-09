@@ -1,0 +1,82 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import joblib
+from datetime import datetime
+
+# Load the dataset and model
+data = pd.read_csv("synthea_data.csv")
+model = joblib.load("ensemble_claim_cost_model.pkl")
+
+# Preprocess the data
+data["ENCOUNTER_DURATION"] = (pd.to_datetime(data["STOP"]) - pd.to_datetime(data["START"])).dt.days
+data["CHRONIC_CONDITION"] = data["DIAGNOSIS1"].str.contains("diabetes|hypertension", case=False, na=False).astype(int) | \
+                            data["DIAGNOSIS2"].str.contains("diabetes|hypertension", case=False, na=False).astype(int)
+data = data.fillna(0)
+
+# Streamlit app
+st.title("Healthcare Claim Cost Prediction App")
+
+# Sidebar for user input
+st.sidebar.header("Patient Information")
+age = st.sidebar.slider("Age", 0, 100, 30)
+gender = st.sidebar.selectbox("Gender", ["M", "F"])
+race = st.sidebar.selectbox("Race", data["RACE"].unique())
+ethnicity = st.sidebar.selectbox("Ethnicity", data["ETHNICITY"].unique())
+income = st.sidebar.slider("Income ($)", 0, 100000, 50000)
+encounter_class = st.sidebar.selectbox("Encounter Class", data["ENCOUNTERCLASS"].unique())
+code = st.sidebar.selectbox("Procedure Code", data["CODE"].unique())
+reason_code = st.sidebar.selectbox("Reason Code", data["REASONCODE"].unique())
+code_1 = st.sidebar.selectbox("Medication Code", data["CODE_1"].unique())
+description = st.sidebar.selectbox("Description", data["DESCRIPTION"].unique())
+provider_id = st.sidebar.selectbox("Provider ID", data["PROVIDERID"].unique())
+diagnosis1 = st.sidebar.selectbox("Diagnosis 1", data["DIAGNOSIS1"].unique())
+diagnosis2 = st.sidebar.selectbox("Diagnosis 2", data["DIAGNOSIS2"].unique())
+encounter_duration = st.sidebar.slider("Encounter Duration (days)", 0, 30, 1)
+
+# Chronic condition calculation
+chronic_condition = 1 if ("diabetes" in str(diagnosis1).lower() or "hypertension" in str(diagnosis1).lower() or
+                          "diabetes" in str(diagnosis2).lower() or "hypertension" in str(diagnosis2).lower()) else 0
+
+# Prepare input data for prediction
+input_data = pd.DataFrame({
+    "AGE": [age],
+    "GENDER": [gender],
+    "RACE": [race],
+    "ETHNICITY": [ethnicity],
+    "INCOME": [income],
+    "ENCOUNTERCLASS": [encounter_class],
+    "CODE": [code],
+    "REASONCODE": [reason_code],
+    "CODE_1": [code_1],
+    "DESCRIPTION": [description],
+    "PROVIDERID": [provider_id],
+    "DIAGNOSIS1": [diagnosis1],
+    "DIAGNOSIS2": [diagnosis2],
+    "ENCOUNTER_DURATION": [encounter_duration],
+    "CHRONIC_CONDITION": [chronic_condition]
+})
+
+# One-hot encode the input data
+input_data_encoded = pd.get_dummies(input_data)
+model_features = pd.get_dummies(data[["AGE", "GENDER", "RACE", "ETHNICITY", "INCOME", "ENCOUNTERCLASS", "CODE", 
+                                      "REASONCODE", "CODE_1", "DESCRIPTION", "PROVIDERID", "DIAGNOSIS1", 
+                                      "DIAGNOSIS2", "ENCOUNTER_DURATION", "CHRONIC_CONDITION"]]).columns
+input_data_encoded = input_data_encoded.reindex(columns=model_features, fill_value=0)
+
+# Make prediction
+if st.sidebar.button("Predict Claim Cost"):
+    prediction = model.predict(input_data_encoded)[0]
+    st.write(f"### Predicted Claim Cost: ${prediction:.2f}")
+
+# Display dataset overview
+st.header("Dataset Overview")
+st.write(data.head())
+
+# Add some basic visualizations
+st.header("Data Visualizations")
+st.subheader("Total Cost Distribution")
+st.bar_chart(data["TOTALCOST"].value_counts())
+
+st.subheader("Age vs Total Cost")
+st.scatter_chart(data[["AGE", "TOTALCOST"]])
